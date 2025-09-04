@@ -104,12 +104,13 @@ defaults: Dict[str, Any] = {
     "last_df": None,
     "next_id": 0,
     "last_url": None,
+    "last_upload_sig": None,  # NEW: remember last uploaded file (name, size)
     "page": 1,
     "uploader_key": 0,
     "page_size": 25,
     "sort_col": "",
     "sort_dir": "Ascending",
-    "filters_nonce": 0,    # forces widgets to rebuild on new dataset / clear
+    "filters_nonce": 0,       # force widget refresh on new dataset / clear
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -137,6 +138,7 @@ def clear_data():
     st.session_state.last_df = None
     st.session_state.next_id = 0
     st.session_state.last_url = None
+    st.session_state.last_upload_sig = None  # reset uploaded-file memo
     st.session_state.uploader_key += 1
     st.session_state.use_sample = False
     st.session_state.csv_url = ""
@@ -217,19 +219,36 @@ uploaded = st.sidebar.file_uploader(
     "Upload a file", type=["csv","tsv","xlsx"],
     key=f"uploader_{st.session_state.uploader_key}",
 )
-use_sample = st.sidebar.checkbox("Use sample/toy.csv", value=st.session_state.get("use_sample", False), key="use_sample")
+use_sample = st.sidebar.checkbox("Use sample/toy.csv",
+                                 value=st.session_state.get("use_sample", False),
+                                 key="use_sample")
 
 st.sidebar.divider()
 st.sidebar.subheader("Or load from URL (CSV)")
 csv_url = st.sidebar.text_input("CSV URL", key="csv_url", placeholder="https://...")
 fetch = st.sidebar.button("Fetch URL", key="fetch_url")
 
+# --- File upload: load only when the actual file changes
 if uploaded is not None:
-    try:
-        base = read_any(uploaded)
-        on_new_dataset_loaded(base, f"Loaded file: {uploaded.name}")
-    except Exception as e:
-        st.error(f"Could not read file: {e}")
+    sig = (uploaded.name, getattr(uploaded, "size", None))
+    if st.session_state.df is None or st.session_state.last_upload_sig != sig:
+        try:
+            base = read_any(uploaded)
+            on_new_dataset_loaded(base, f"Loaded file: {uploaded.name}")
+            st.session_state.last_upload_sig = sig
+        except Exception as e:
+            st.error(f"Could not read file: {e}")
+
+    # Optional manual reload
+    if st.sidebar.button("Reload uploaded file"):
+        try:
+            base = read_any(uploaded)
+            on_new_dataset_loaded(base, f"Reloaded: {uploaded.name}")
+            st.session_state.last_upload_sig = (uploaded.name, getattr(uploaded, "size", None))
+        except Exception as e:
+            st.error(f"Could not read file: {e}")
+
+# --- URL fetch (only when clicked or URL changed)
 elif (csv_url and (fetch or st.session_state.last_url != csv_url)):
     try:
         web_df = pd.read_csv(csv_url)
@@ -239,6 +258,8 @@ elif (csv_url and (fetch or st.session_state.last_url != csv_url)):
         on_new_dataset_loaded(web_df, "Loaded data from URL.")
     except Exception as e:
         st.error(f"Could not fetch CSV: {e}")
+
+# --- Sample (first load only)
 elif st.session_state.df is None and use_sample:
     base = pd.read_csv("sample/toy.csv")
     on_new_dataset_loaded(base, "Loaded sample/toy.csv")
