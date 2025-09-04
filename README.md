@@ -19,6 +19,17 @@ A compact, browser-based **CSV workbench**. Upload a file or paste a CSV URL, fi
 
 ---
 
+[![Use this template](https://img.shields.io/badge/Use_this_template-2ea44f?logo=github)](https://github.com/xXBricksquadXx/csv-studio-duckdb/generate)
+
+### After you click “Use this template”
+
+- `python -m venv .venv && .\.venv\Scripts\Activate.ps1`
+- `pip install -r requirements.txt`
+- `python -m streamlit run app.py`
+- (Optional) tweak theme in `.streamlit/config.toml` and the app title in `app.py`
+
+---
+
 ## Capabilities
 
 - **Load** CSV/TSV/XLSX or **fetch** a public CSV by URL
