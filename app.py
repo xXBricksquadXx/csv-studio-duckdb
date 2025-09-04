@@ -4,8 +4,18 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-# ---------- Page ----------
+# ----------------------------- Page setup -----------------------------
 st.set_page_config(page_title="CSV Studio — DuckDB Edition", layout="wide")
+
+# Clean screenshot mode: add ?shot=1 to the URL to hide UI chrome
+qs = st.query_params
+if "shot" in qs:
+    st.markdown("""
+    <style>
+      [data-testid="stSidebar"]{display:none;}
+      header, footer, #MainMenu{visibility:hidden;}
+    </style>
+    """, unsafe_allow_html=True)
 
 # Saints black & gold + glossy/drippy UI
 st.markdown("""
@@ -85,39 +95,30 @@ h1,h2,h3{letter-spacing:.3px}
 st.title("CSV Studio — DuckDB Edition")
 st.caption("Upload CSV/TSV/XLSX or load from URL → filter → KPIs & charts → edit (CRUD) → export.")
 
-# ---------- Session ----------
-if "df" not in st.session_state:
-    st.session_state.df = None
-if "last_df" not in st.session_state:
-    st.session_state.last_df = None
-if "next_id" not in st.session_state:
-    st.session_state.next_id = 0
-if "last_url" not in st.session_state:
-    st.session_state.last_url = None
-if "page" not in st.session_state:
-    st.session_state.page = 1
-if "uploader_key" not in st.session_state:
-    st.session_state.uploader_key = 0  # force-reset file_uploader
+# ----------------------------- Session state -----------------------------
+defaults = {
+    "df": None,
+    "last_df": None,
+    "next_id": 0,
+    "last_url": None,
+    "page": 1,
+    "uploader_key": 0,
+    "sort_col": "",
+    "sort_dir": "Ascending",
+    "page_size": 25,
+}
+for k, v in defaults.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
 
-# ---------- Reset helpers ----------
-FILTER_KEYS = [
-    "text_col","q","cat_col","cat_vals","date_col","date_rng",
-    "metric_col","metric_range","q_all","needle","visible_cols",
-    "sort_col","sort_dir","page_size"
-]
-
-def clear_filters_exact():
-    st.session_state.text_col = ""
-    st.session_state.q = ""
-    st.session_state.cat_col = ""
-    st.session_state.cat_vals = []
-    st.session_state.date_col = ""
-    if "date_rng" in st.session_state: del st.session_state.date_rng
-    st.session_state.metric_col = ""
-    if "metric_range" in st.session_state: del st.session_state.metric_range
-    st.session_state.q_all = ""
-    st.session_state.needle = ""
-    if "visible_cols" in st.session_state: del st.session_state.visible_cols
+# ----------------------------- Helpers -----------------------------
+def clear_filters():
+    for key in [
+        "text_col","q","cat_col","cat_vals","date_col","date_rng",
+        "metric_col","metric_range","q_all","needle","visible_cols"
+    ]:
+        if key in st.session_state:
+            del st.session_state[key]
     st.session_state.sort_col = ""
     st.session_state.sort_dir = "Ascending"
     st.session_state.page_size = 25
@@ -131,7 +132,7 @@ def clear_data():
     st.session_state.uploader_key += 1
     st.session_state.use_sample = False
     st.session_state.csv_url = ""
-    clear_filters_exact()
+    clear_filters()
     st.success("Data cleared.")
     st.rerun()
 
@@ -139,7 +140,6 @@ def reset_app():
     st.session_state.clear()
     st.rerun()
 
-# ---------- Utils ----------
 def parse_dates_best_effort(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     for c in out.columns:
@@ -179,31 +179,27 @@ def read_any(uploaded) -> pd.DataFrame:
     if name.endswith(".tsv"):
         return pd.read_csv(uploaded, sep="\t")
     if name.endswith(".xlsx"):
-        return pd.read_excel(uploaded)  # pip install openpyxl
+        return pd.read_excel(uploaded)  # requires openpyxl
     raise ValueError("Unsupported format (use .csv, .tsv, or .xlsx)")
 
-# ---------- Sidebar: icon controls ----------
+# ----------------------------- Sidebar icon controls -----------------------------
 with st.sidebar:
     st.markdown("### Data controls")
-    b1, b2, b3 = st.columns(3)
-    if b1.button("🧹", help="Clear filters", use_container_width=True):
-        clear_filters_exact(); st.rerun()
-    if b2.button("🗑️", help="Clear data", use_container_width=True):
+    c1, c2, c3 = st.columns(3)
+    if c1.button("🧹", help="Clear filters", use_container_width=True):
+        clear_filters(); st.rerun()
+    if c2.button("🗑️", help="Clear data", use_container_width=True):
         clear_data()
-    if b3.button("🔄", help="Reset app", use_container_width=True):
+    if c3.button("🔄", help="Reset app", use_container_width=True):
         reset_app()
 
-# ---------- 1) LOAD ----------
+# ----------------------------- 1) Load data -----------------------------
 st.sidebar.markdown("### 1) Load data")
 uploaded = st.sidebar.file_uploader(
     "Upload a file", type=["csv","tsv","xlsx"],
     key=f"uploader_{st.session_state.uploader_key}",
 )
-use_sample = st.sidebar.checkbox(
-    "Use sample/toy.csv",
-    value=st.session_state.get("use_sample", False),
-    key="use_sample",
-)
+use_sample = st.sidebar.checkbox("Use sample/toy.csv", value=st.session_state.get("use_sample", False), key="use_sample")
 
 st.sidebar.divider()
 st.sidebar.subheader("Or load from URL (CSV)")
@@ -251,12 +247,12 @@ if df is None:
     )
     st.stop()
 
-# ---------- Column types ----------
+# ----------------------------- Columns / types -----------------------------
 num_cols = df.select_dtypes(include="number").columns.drop("_id", errors="ignore").tolist()
 date_cols = df.select_dtypes(include="datetime64[ns]").columns.tolist()
 txt_cols = [c for c in df.columns if c not in num_cols + date_cols + ["_id"]]
 
-# ---------- 2) FILTERS ----------
+# ----------------------------- 2) Filters -----------------------------
 st.sidebar.markdown("### 2) Filters")
 text_col = st.sidebar.selectbox("Search column", [""] + txt_cols, index=0, key="text_col")
 q = st.sidebar.text_input("Search text", "", key="q")
@@ -265,7 +261,7 @@ cat_col = st.sidebar.selectbox("Category column", [""] + txt_cols, index=0, key=
 cat_vals = None
 if cat_col:
     uni = sorted([str(x) for x in df[cat_col].dropna().unique()])
-    default_vals = uni[:] if st.session_state.get("cat_vals", []) == [] else st.session_state.get("cat_vals", [])
+    default_vals = st.session_state.get("cat_vals", [])
     cat_vals = st.sidebar.multiselect("Category values", uni, default=default_vals, key="cat_vals")
 
 date_col = st.sidebar.selectbox("Date column", [""] + date_cols, index=0, key="date_col")
@@ -282,7 +278,7 @@ if metric_col:
     hi = float(pd.to_numeric(df[metric_col], errors="coerce").max() or 0.0)
     metric_range = st.sidebar.slider("Metric range", min_value=0.0, max_value=max(1.0, hi), value=(lo, hi), key="metric_range")
 
-# Apply filters
+# Apply filters to dff
 dff = df.copy()
 if text_col and q:
     dff = dff[dff[text_col].astype(str).str.contains(q, case=False, na=False)]
@@ -303,7 +299,7 @@ if q_all:
     mask = dff.astype(str).apply(lambda s: s.str.contains(q_all, case=False, na=False))
     dff = dff[mask.any(axis=1)]
 
-# ---------- 3) KPIs ----------
+# ----------------------------- 3) KPIs -----------------------------
 c1, c2, c3 = st.columns(3)
 c1.metric("Rows", f"{len(dff):,}")
 if metric_col:
@@ -312,7 +308,7 @@ if metric_col:
     c2.metric(f"Sum {metric_col}", f"{total:,.2f}")
     c3.metric(f"Median {metric_col}", f"{median:,.2f}")
 
-# ---------- Column picker ----------
+# ----------------------------- Column picker -----------------------------
 st.sidebar.markdown("### Columns")
 needle = st.sidebar.text_input("Find column name", key="needle")
 available_cols = [c for c in dff.columns if needle.lower() in c.lower()]
@@ -321,11 +317,11 @@ visible_cols = st.sidebar.multiselect("Columns to display/export", available_col
 extra = ["_id"] if "_id" in dff.columns and "_id" not in visible_cols else []
 view = dff[visible_cols + extra] if visible_cols else dff
 
-# ---------- Sort & Paginate ----------
+# ----------------------------- Sort & paginate -----------------------------
 st.sidebar.markdown("### Sort & paginate")
 sort_col = st.sidebar.selectbox("Sort by", [""] + list(view.columns), index=0, key="sort_col")
 sort_dir = st.sidebar.radio("Order", ["Ascending","Descending"], index=0, horizontal=True, key="sort_dir")
-page_size = st.sidebar.selectbox("Rows per page", [25,50,100,250,1000], index=0, key="page_size")
+page_size = st.sidebar.selectbox("Rows per page", [25,50,100,250,1000], index=[25,50,100,250,1000].index(st.session_state.page_size), key="page_size")
 
 if sort_col:
     view_sorted = view.sort_values(by=sort_col, ascending=(sort_dir=="Ascending"), kind="mergesort")
@@ -341,7 +337,7 @@ start_i = (page - 1) * page_size
 end_i = min(start_i + page_size, total_rows)
 page_view = view_sorted.iloc[start_i:end_i]
 
-# ---------- 4) Charts ----------
+# ----------------------------- 4) Charts -----------------------------
 tabs = st.tabs(["Time series", "By category", "Table / Edit"])
 con = register_duck(dff)
 
@@ -377,7 +373,7 @@ with tabs[1]:
     else:
         st.info("Pick a Category + Metric to see a bar chart.")
 
-# ---------- 5) CRUD ----------
+# ----------------------------- 5) CRUD -----------------------------
 with tabs[2]:
     st.subheader("Edit data (CRUD)")
     st.caption(
@@ -401,13 +397,22 @@ with tabs[2]:
         num_rows="dynamic",
         use_container_width=True,
         hide_index=True,
-        column_config={"_id": st.column_config.NumberColumn("_id", help="internal id", disabled=True)},
+        key="editor_table",  # keep focus across reruns
+        column_config={
+            "_id": st.column_config.NumberColumn("_id", help="internal id", disabled=True)
+        },
         height=420,
     )
 
+    # PATCH: if adding a new row while sorted, disable sorting to prevent jump/cancel
+    if edited["_id"].isna().any() and st.session_state.get("sort_col"):
+        st.session_state.sort_col = ""  # turn off sort
+        st.toast("Sorting disabled while adding a row to prevent jumping.", icon="🔧")
+        st.rerun()
+
     cA, cB, cC, cD = st.columns([1,1,1,2])
     apply_btn = cA.button("Apply changes", type="primary")
-    undo_btn = cB.button("Undo last change")
+    undo_btn  = cB.button("Undo last change")
     cC.download_button(
         "Download page CSV",
         edited.drop(columns=["Delete"], errors="ignore").to_csv(index=False).encode(),
@@ -427,15 +432,18 @@ with tabs[2]:
         base = st.session_state.df.set_index("_id").copy()
         st.session_state.last_df = base.reset_index().copy()
 
+        # Deletes
         to_delete = edited.loc[edited["Delete"] == True, "_id"].dropna().astype(int).tolist()  # noqa: E712
         if to_delete:
             base = base.drop(index=[rid for rid in to_delete if rid in base.index], errors="ignore")
 
+        # Updates
         updates = edited[edited["_id"].notna()].drop(columns=["Delete"]).set_index("_id")
         if not updates.empty:
             cols_to_update = [c for c in updates.columns if c in base.columns]
             base.update(updates[cols_to_update])
 
+        # Inserts
         inserts = edited[edited["_id"].isna()].drop(columns=["Delete"])
         if not inserts.empty:
             n = len(inserts)
@@ -450,7 +458,7 @@ with tabs[2]:
         st.session_state.df = base.reset_index()
         st.success("Changes applied."); st.rerun()
 
-# ---------- 6) EXPORT ----------
+# ----------------------------- 6) Export (full) -----------------------------
 st.download_button(
     "Download current dataset (all rows)",
     st.session_state.df.to_csv(index=False).encode(),
