@@ -1,11 +1,21 @@
 # CSV Studio — DuckDB Edition
 
-[![Streamlit App](https://img.shields.io/badge/Live%20App-Streamlit-black?logo=streamlit)](https://csv-studio-duckdb.streamlit.app/)
+[![Live App](https://img.shields.io/badge/Live_App-Streamlit-ff4b4b?logo=streamlit&logoColor=white)](https://csv-studio-duckdb.streamlit.app/)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![DuckDB](https://img.shields.io/badge/Powered_by-DuckDB-fff?logo=duckdb&logoColor=000)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A compact, browser-based **CSV workbench**. Upload a file or paste a CSV URL, filter and chart it, edit rows, and export—fast.
+A compact, browser-based **CSV workbench**. Upload a file or paste a CSV URL, filter + chart it, **edit rows**, and export—fast.
+
+<p align="center">
+  <a href="https://csv-studio-duckdb.streamlit.app/">Live demo</a> ·
+  <a href="https://github.com/xXBricksquadXx/csv-studio-duckdb">Source</a>
+</p>
+
+<!-- Optional: add a repo/social preview image -->
+<p align="center">
+  <img src="docs/screenshot-main.png" alt="CSV Studio — 38k rows loaded with CRUD editor, pagination and filters" width="100%">
+</p>
 
 ---
 
@@ -14,29 +24,23 @@ A compact, browser-based **CSV workbench**. Upload a file or paste a CSV URL, fi
 - **Load** CSV/TSV/XLSX or **fetch** a public CSV by URL
 - **Filter & search:** text, category, date range, global search, metric range
 - **KPIs & charts:** sum/median, **time series** (date+metric), **by category** (metric by dimension)
-- **CRUD table editor:** add/edit/delete rows with safe internal `_id`
+- **CRUD editor:** add / update / delete rows (safe internal `_id`)
 - **Sort & paginate** large tables (25/50/100/250/1000 rows)
-- **Export** filtered view or full dataset
+- **Export** page CSV, filtered CSV, or full dataset
 - **One-click resets:** clear filters, clear data, reset app
 
 ---
 
-## Features (at a glance)
+## Quickstart
 
-- Minimal **black & gold** UI with clean, glossy touches
-- In-memory **pandas** DataFrame with **DuckDB** for fast aggregations
-- Works great for ad-hoc cleaning, quick analytics, and sharing filtered CSVs
+```bash
+# 1) Create & activate a venv (Windows PowerShell)
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 
----
+# 2) Install
+pip install -r requirements.txt  # includes streamlit, duckdb, pandas, plotly, openpyxl
 
-## Credits
-
-- **[Streamlit](https://streamlit.io/):** UI framework
-- **[DuckDB](https://duckdb.org/):** analytics engine
-- **[Plotly](https://plotly.com/python/):** interactive charts
-
----
-
-## License
-
-Released under the **MIT License**. See [`LICENSE`](LICENSE).
+# 3) Run
+python -m streamlit run app.py
+```
