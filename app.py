@@ -1,10 +1,12 @@
 import math
+from typing import Dict, Any
+
 import duckdb
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-# ----------------------------- Page setup -----------------------------
+# ============================== Page setup ==============================
 st.set_page_config(page_title="CSV Studio — DuckDB Edition", layout="wide")
 
 # Clean screenshot mode: add ?shot=1 to the URL to hide UI chrome
@@ -17,25 +19,25 @@ if "shot" in qs:
     </style>
     """, unsafe_allow_html=True)
 
-# Saints black & gold + glossy/drippy UI
+# Saints black & gold + glossy UI
 st.markdown("""
 <style>
 :root{
-  --black:#0B0B0B; --ink:#0F1115; --panel:#121214;
-  --gold:#D2B887; --gold2:#EAD9AE; --fg:#FFF8E7;
+  --black:#0B0B0B; --panel:#121214;
+  --gold:#D2B887; --fg:#FFF8E7;
 }
 html, body, [data-testid="stAppViewContainer"]{
   background:
-    radial-gradient(1200px 600px at 20% -10%, rgba(210,184,135,.08), transparent 60%),
+    radial-gradient(1000px 500px at 20% -10%, rgba(210,184,135,.08), transparent 60%),
     radial-gradient(900px 500px at 120% 10%, rgba(210,184,135,.06), transparent 55%),
     var(--black);
   color:var(--fg);
 }
+.block-container{padding-top:1rem}
 [data-testid="stSidebar"]{
   background:linear-gradient(180deg,#0D0D0D,#101213);
   border-right:1px solid rgba(210,184,135,.20);
 }
-.block-container{padding-top:1rem}
 h1,h2,h3{letter-spacing:.3px}
 
 /* Buttons */
@@ -44,7 +46,9 @@ h1,h2,h3{letter-spacing:.3px}
   color:var(--fg);
   border:1px solid rgba(210,184,135,.55);
   border-radius:14px; padding:.55rem .9rem;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 0 0 2px rgba(210,184,135,.1), 0 12px 20px rgba(0,0,0,.35);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.06),
+              0 0 0 2px rgba(210,184,135,.1),
+              0 12px 20px rgba(0,0,0,.35);
   transition:transform .15s ease, box-shadow .2s ease, border-color .2s;
 }
 .stButton>button:hover{
@@ -86,7 +90,6 @@ h1,h2,h3{letter-spacing:.3px}
 @keyframes ooze{0%{transform:translate(-40px,-10px) scale(1)}50%{transform:translate(20px,10px) scale(1.15)}100%{transform:translate(-40px,-10px) scale(1)}}
 .fade-in{animation:fade .25s ease-out}
 @keyframes fade{from{opacity:0; transform:translateY(4px)} to{opacity:1; transform:none}}
-
 /* Compact icon buttons in sidebar */
 [data-testid="stSidebar"] .stButton>button{padding:.4rem .5rem; border-radius:10px}
 </style>
@@ -95,23 +98,27 @@ h1,h2,h3{letter-spacing:.3px}
 st.title("CSV Studio — DuckDB Edition")
 st.caption("Upload CSV/TSV/XLSX or load from URL → filter → KPIs & charts → edit (CRUD) → export.")
 
-# ----------------------------- Session state -----------------------------
-defaults = {
+# ============================== Session defaults ==============================
+defaults: Dict[str, Any] = {
     "df": None,
     "last_df": None,
     "next_id": 0,
     "last_url": None,
     "page": 1,
     "uploader_key": 0,
+    "page_size": 25,
     "sort_col": "",
     "sort_dir": "Ascending",
-    "page_size": 25,
+    "filters_nonce": 0,    # forces widgets to rebuild on new dataset / clear
 }
 for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
-# ----------------------------- Helpers -----------------------------
+# ============================== Helpers ==============================
+def bump_filters_nonce():
+    st.session_state.filters_nonce += 1
+
 def clear_filters():
     for key in [
         "text_col","q","cat_col","cat_vals","date_col","date_rng",
@@ -123,6 +130,7 @@ def clear_filters():
     st.session_state.sort_dir = "Ascending"
     st.session_state.page_size = 25
     st.session_state.page = 1
+    bump_filters_nonce()
 
 def clear_data():
     st.session_state.df = None
@@ -133,7 +141,7 @@ def clear_data():
     st.session_state.use_sample = False
     st.session_state.csv_url = ""
     clear_filters()
-    st.success("Data cleared.")
+    st.toast("Data cleared.", icon="🗑️")
     st.rerun()
 
 def reset_app():
@@ -179,10 +187,20 @@ def read_any(uploaded) -> pd.DataFrame:
     if name.endswith(".tsv"):
         return pd.read_csv(uploaded, sep="\t")
     if name.endswith(".xlsx"):
-        return pd.read_excel(uploaded)  # requires openpyxl
+        return pd.read_excel(uploaded)  # needs openpyxl
     raise ValueError("Unsupported format (use .csv, .tsv, or .xlsx)")
 
-# ----------------------------- Sidebar icon controls -----------------------------
+def on_new_dataset_loaded(new_df: pd.DataFrame, source_msg: str):
+    new_df = ensure_id(parse_dates_best_effort(new_df))
+    st.session_state.df = new_df
+    st.session_state.last_df = None
+    st.session_state.page = 1
+    st.session_state.sort_col = ""
+    st.session_state.sort_dir = "Ascending"
+    clear_filters()  # also bumps nonce
+    st.toast(source_msg, icon="✅")
+
+# ============================== Sidebar controls ==============================
 with st.sidebar:
     st.markdown("### Data controls")
     c1, c2, c3 = st.columns(3)
@@ -193,7 +211,7 @@ with st.sidebar:
     if c3.button("🔄", help="Reset app", use_container_width=True):
         reset_app()
 
-# ----------------------------- 1) Load data -----------------------------
+# ============================== 1) Load data ==============================
 st.sidebar.markdown("### 1) Load data")
 uploaded = st.sidebar.file_uploader(
     "Upload a file", type=["csv","tsv","xlsx"],
@@ -209,9 +227,7 @@ fetch = st.sidebar.button("Fetch URL", key="fetch_url")
 if uploaded is not None:
     try:
         base = read_any(uploaded)
-        base = ensure_id(parse_dates_best_effort(base))
-        st.session_state.df = base
-        st.success(f"Loaded file: {uploaded.name}")
+        on_new_dataset_loaded(base, f"Loaded file: {uploaded.name}")
     except Exception as e:
         st.error(f"Could not read file: {e}")
 elif (csv_url and (fetch or st.session_state.last_url != csv_url)):
@@ -219,16 +235,13 @@ elif (csv_url and (fetch or st.session_state.last_url != csv_url)):
         web_df = pd.read_csv(csv_url)
         if "time" in web_df.columns and pd.api.types.is_numeric_dtype(web_df["time"]):
             web_df["time"] = pd.to_datetime(web_df["time"], unit="ms")
-        web_df = ensure_id(parse_dates_best_effort(web_df))
-        st.session_state.df = web_df
         st.session_state.last_url = csv_url
-        st.success("Loaded data from URL.")
+        on_new_dataset_loaded(web_df, "Loaded data from URL.")
     except Exception as e:
         st.error(f"Could not fetch CSV: {e}")
 elif st.session_state.df is None and use_sample:
     base = pd.read_csv("sample/toy.csv")
-    base = ensure_id(parse_dates_best_effort(base))
-    st.session_state.df = base
+    on_new_dataset_loaded(base, "Loaded sample/toy.csv")
 
 df = st.session_state.df
 if df is None:
@@ -247,59 +260,68 @@ if df is None:
     )
     st.stop()
 
-# ----------------------------- Columns / types -----------------------------
+# ============================== Types ==============================
 num_cols = df.select_dtypes(include="number").columns.drop("_id", errors="ignore").tolist()
 date_cols = df.select_dtypes(include="datetime64[ns]").columns.tolist()
-txt_cols = [c for c in df.columns if c not in num_cols + date_cols + ["_id"]]
+txt_cols  = [c for c in df.columns if c not in num_cols + date_cols + ["_id"]]
 
-# ----------------------------- 2) Filters -----------------------------
+# ============================== 2) Filters ==============================
+nonce = st.session_state.filters_nonce
 st.sidebar.markdown("### 2) Filters")
-text_col = st.sidebar.selectbox("Search column", [""] + txt_cols, index=0, key="text_col")
-q = st.sidebar.text_input("Search text", "", key="q")
 
-cat_col = st.sidebar.selectbox("Category column", [""] + txt_cols, index=0, key="cat_col")
+text_col = st.sidebar.selectbox("Search column", [""] + txt_cols, key=f"text_col_{nonce}")
+q        = st.sidebar.text_input("Search text", "", key=f"q_{nonce}")
+
+cat_col  = st.sidebar.selectbox("Category column", [""] + txt_cols, key=f"cat_col_{nonce}")
 cat_vals = None
 if cat_col:
     uni = sorted([str(x) for x in df[cat_col].dropna().unique()])
-    default_vals = st.session_state.get("cat_vals", [])
-    cat_vals = st.sidebar.multiselect("Category values", uni, default=default_vals, key="cat_vals")
+    cat_vals = st.sidebar.multiselect("Category values", uni, key=f"cat_vals_{nonce}")
 
-date_col = st.sidebar.selectbox("Date column", [""] + date_cols, index=0, key="date_col")
+date_col = st.sidebar.selectbox("Date column", [""] + date_cols, key=f"date_col_{nonce}")
 date_rng = None
 if date_col:
     dmin = pd.to_datetime(df[date_col]).min()
     dmax = pd.to_datetime(df[date_col]).max()
-    date_rng = st.sidebar.date_input("Date range", value=(dmin, dmax), min_value=dmin, max_value=dmax, key="date_rng")
+    date_rng = st.sidebar.date_input(
+        "Date range",
+        value=(dmin.date(), dmax.date()),
+        min_value=dmin.date(), max_value=dmax.date(),
+        key=f"date_rng_{nonce}",
+    )
 
-metric_col = st.sidebar.selectbox("Metric (for KPIs/Charts)", [""] + num_cols, index=0, key="metric_col")
+metric_col   = st.sidebar.selectbox("Metric (for KPIs/Charts)", [""] + num_cols, key=f"metric_col_{nonce}")
 metric_range = None
 if metric_col:
     lo = float(pd.to_numeric(df[metric_col], errors="coerce").min() or 0.0)
     hi = float(pd.to_numeric(df[metric_col], errors="coerce").max() or 0.0)
-    metric_range = st.sidebar.slider("Metric range", min_value=0.0, max_value=max(1.0, hi), value=(lo, hi), key="metric_range")
+    metric_range = st.sidebar.slider(
+        "Metric range", min_value=0.0, max_value=max(1.0, hi),
+        value=(lo, hi), key=f"metric_range_{nonce}"
+    )
 
-# Apply filters to dff
+# Apply filters
 dff = df.copy()
 if text_col and q:
     dff = dff[dff[text_col].astype(str).str.contains(q, case=False, na=False)]
 if cat_col and cat_vals and len(cat_vals) < len(dff[cat_col].dropna().unique()):
     dff = dff[dff[cat_col].astype(str).isin(cat_vals)]
 if date_col and date_rng:
-    start, end = pd.to_datetime(date_rng[0]), pd.to_datetime(date_rng[1])
+    start = pd.to_datetime(date_rng[0])
+    end   = pd.to_datetime(date_rng[1])
     dff = dff[(pd.to_datetime(dff[date_col]) >= start) & (pd.to_datetime(dff[date_col]) <= end)]
 if metric_col and metric_range:
     lo, hi = metric_range
     vals = pd.to_numeric(dff[metric_col], errors="coerce")
     dff = dff[(vals >= lo) & (vals <= hi)]
 
-# Global search
 st.sidebar.divider()
-q_all = st.sidebar.text_input("Global search (any column)", key="q_all")
+q_all = st.sidebar.text_input("Global search (any column)", key=f"q_all_{nonce}")
 if q_all:
     mask = dff.astype(str).apply(lambda s: s.str.contains(q_all, case=False, na=False))
     dff = dff[mask.any(axis=1)]
 
-# ----------------------------- 3) KPIs -----------------------------
+# ============================== 3) KPIs ==============================
 c1, c2, c3 = st.columns(3)
 c1.metric("Rows", f"{len(dff):,}")
 if metric_col:
@@ -308,20 +330,24 @@ if metric_col:
     c2.metric(f"Sum {metric_col}", f"{total:,.2f}")
     c3.metric(f"Median {metric_col}", f"{median:,.2f}")
 
-# ----------------------------- Column picker -----------------------------
+# ============================== Columns / Sort & Paginate ==============================
 st.sidebar.markdown("### Columns")
-needle = st.sidebar.text_input("Find column name", key="needle")
+needle = st.sidebar.text_input("Find column name", key=f"needle_{nonce}")
 available_cols = [c for c in dff.columns if needle.lower() in c.lower()]
-default_cols = available_cols[:30]
-visible_cols = st.sidebar.multiselect("Columns to display/export", available_cols, default=default_cols, key="visible_cols")
-extra = ["_id"] if "_id" in dff.columns and "_id" not in visible_cols else []
-view = dff[visible_cols + extra] if visible_cols else dff
+default_cols   = available_cols[:30]
+visible_cols   = st.sidebar.multiselect(
+    "Columns to display/export", available_cols, default=default_cols, key=f"visible_cols_{nonce}"
+)
 
-# ----------------------------- Sort & paginate -----------------------------
 st.sidebar.markdown("### Sort & paginate")
-sort_col = st.sidebar.selectbox("Sort by", [""] + list(view.columns), index=0, key="sort_col")
-sort_dir = st.sidebar.radio("Order", ["Ascending","Descending"], index=0, horizontal=True, key="sort_dir")
-page_size = st.sidebar.selectbox("Rows per page", [25,50,100,250,1000], index=[25,50,100,250,1000].index(st.session_state.page_size), key="page_size")
+sort_choices = [""] + list((visible_cols or list(dff.columns)))
+sort_col  = st.sidebar.selectbox("Sort by", sort_choices, key=f"sort_col_{nonce}")
+sort_dir  = st.sidebar.radio("Order", ["Ascending","Descending"], horizontal=True, key=f"sort_dir_{nonce}")
+page_size = st.sidebar.selectbox("Rows per page", [25,50,100,250,1000], key=f"page_size_{nonce}")
+st.session_state.page_size = int(page_size)
+
+extra = ["_id"] if "_id" in dff.columns and "_id" not in (visible_cols or []) else []
+view = dff[(visible_cols or dff.columns.tolist()) + extra] if visible_cols else dff
 
 if sort_col:
     view_sorted = view.sort_values(by=sort_col, ascending=(sort_dir=="Ascending"), kind="mergesort")
@@ -329,15 +355,15 @@ else:
     view_sorted = view
 
 total_rows = len(view_sorted)
-total_pages = max(1, math.ceil(total_rows / page_size))
+total_pages = max(1, math.ceil(total_rows / st.session_state.page_size))
 st.session_state.page = min(max(1, st.session_state.page), total_pages)
 page = st.session_state.page
 
-start_i = (page - 1) * page_size
-end_i = min(start_i + page_size, total_rows)
+start_i = (page - 1) * st.session_state.page_size
+end_i   = min(start_i + st.session_state.page_size, total_rows)
 page_view = view_sorted.iloc[start_i:end_i]
 
-# ----------------------------- 4) Charts -----------------------------
+# ============================== 4) Charts ==============================
 tabs = st.tabs(["Time series", "By category", "Table / Edit"])
 con = register_duck(dff)
 
@@ -373,7 +399,7 @@ with tabs[1]:
     else:
         st.info("Pick a Category + Metric to see a bar chart.")
 
-# ----------------------------- 5) CRUD -----------------------------
+# ============================== 5) CRUD ==============================
 with tabs[2]:
     st.subheader("Edit data (CRUD)")
     st.caption(
@@ -381,6 +407,7 @@ with tabs[2]:
         f"(page {page}/{total_pages}). Use sorting & pagination in the sidebar."
     )
 
+    # Pager
     p1, p2, p3 = st.columns([1,2,1])
     if p1.button("◀ Prev", disabled=(page <= 1)):
         st.session_state.page = max(1, page - 1); st.rerun()
@@ -388,27 +415,64 @@ with tabs[2]:
     if p3.button("Next ▶", disabled=(page >= total_pages)):
         st.session_state.page = min(total_pages, page + 1); st.rerun()
 
+    # ----- Stable Add Row (form)
+    with st.expander("➕ Add a row", expanded=False):
+        st.caption("Safer than typing into the editor’s blank row on long/sorted tables.")
+        form_cols = [c for c in (visible_cols or list(df.columns)) if c not in ["_id", "Delete"]]
+
+        with st.form("add_row_form", clear_on_submit=True):
+            inputs: Dict[str, Any] = {}
+            left, right = st.columns(2)
+            for i, c in enumerate(form_cols):
+                host = left if i % 2 == 0 else right
+                if pd.api.types.is_datetime64_any_dtype(df[c]):
+                    val = host.date_input(c, value=None)
+                elif pd.api.types.is_numeric_dtype(df[c]):
+                    val = host.text_input(c, value="", placeholder="e.g. 123.45")
+                else:
+                    val = host.text_input(c, value="")
+                inputs[c] = val
+            submitted = st.form_submit_button("Add")
+
+        if submitted:
+            new = {}
+            for c, v in inputs.items():
+                if v == "" or v is None:
+                    new[c] = pd.NA
+                else:
+                    # try numeric first
+                    if pd.api.types.is_numeric_dtype(df[c]):
+                        new[c] = pd.to_numeric(v, errors="coerce")
+                    elif "date" in str(type(v)).lower():
+                        new[c] = pd.Timestamp(v)
+                    else:
+                        new[c] = v
+            new["_id"] = st.session_state.next_id
+            st.session_state.next_id += 1
+
+            st.session_state.last_df = st.session_state.df.copy()
+            st.session_state.df = pd.concat(
+                [st.session_state.df, pd.DataFrame([new])],
+                ignore_index=True
+            )
+            st.toast("Row added.", icon="➕")
+            st.session_state.page = math.ceil(len(st.session_state.df) / st.session_state.page_size)
+            st.rerun()
+
+    # Editor for update/delete only
     edit_view = page_view.copy()
     if "Delete" not in edit_view.columns:
         edit_view["Delete"] = False
 
     edited = st.data_editor(
         edit_view,
-        num_rows="dynamic",
+        num_rows="fixed",           # no dynamic blank row
         use_container_width=True,
         hide_index=True,
-        key="editor_table",  # keep focus across reruns
-        column_config={
-            "_id": st.column_config.NumberColumn("_id", help="internal id", disabled=True)
-        },
+        key="editor_table",
+        column_config={"_id": st.column_config.NumberColumn("_id", help="internal id", disabled=True)},
         height=420,
     )
-
-    # PATCH: if adding a new row while sorted, disable sorting to prevent jump/cancel
-    if edited["_id"].isna().any() and st.session_state.get("sort_col"):
-        st.session_state.sort_col = ""  # turn off sort
-        st.toast("Sorting disabled while adding a row to prevent jumping.", icon="🔧")
-        st.rerun()
 
     cA, cB, cC, cD = st.columns([1,1,1,2])
     apply_btn = cA.button("Apply changes", type="primary")
@@ -426,7 +490,7 @@ with tabs[2]:
 
     if undo_btn and st.session_state.last_df is not None:
         st.session_state.df = st.session_state.last_df.copy()
-        st.success("Reverted to last saved dataset."); st.rerun()
+        st.toast("Reverted to last saved dataset.", icon="↩️"); st.rerun()
 
     if apply_btn:
         base = st.session_state.df.set_index("_id").copy()
@@ -437,28 +501,16 @@ with tabs[2]:
         if to_delete:
             base = base.drop(index=[rid for rid in to_delete if rid in base.index], errors="ignore")
 
-        # Updates
+        # Updates (no inserts here—use the form above)
         updates = edited[edited["_id"].notna()].drop(columns=["Delete"]).set_index("_id")
         if not updates.empty:
             cols_to_update = [c for c in updates.columns if c in base.columns]
             base.update(updates[cols_to_update])
 
-        # Inserts
-        inserts = edited[edited["_id"].isna()].drop(columns=["Delete"])
-        if not inserts.empty:
-            n = len(inserts)
-            new_ids = list(range(st.session_state.next_id, st.session_state.next_id + n))
-            st.session_state.next_id += n
-            inserts = inserts.copy().set_index(pd.Index(new_ids, name="_id"))
-            for c in base.columns:
-                if c not in inserts.columns:
-                    inserts[c] = pd.NA
-            base = pd.concat([base, inserts[base.columns]], axis=0)
-
         st.session_state.df = base.reset_index()
-        st.success("Changes applied."); st.rerun()
+        st.toast("Changes applied.", icon="✅"); st.rerun()
 
-# ----------------------------- 6) Export (full) -----------------------------
+# ============================== 6) Export (full) ==============================
 st.download_button(
     "Download current dataset (all rows)",
     st.session_state.df.to_csv(index=False).encode(),
