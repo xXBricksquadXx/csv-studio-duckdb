@@ -1,0 +1,7 @@
+date,region,product,orders,revenue
+2025-08-01,East,Widget A,23,1840
+2025-08-01,West,Widget B,15,1200
+2025-08-02,East,Widget A,21,1680
+2025-08-02,West,Widget B,10,800
+2025-08-03,East,Widget A,12,960
+2025-08-03,West,Widget B,16,1280

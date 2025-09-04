@@ -1,0 +1,7 @@
+[theme]
+base = "dark"
+primaryColor = "#D2B887"            # Saints old gold
+backgroundColor = "#0B0B0B"         # Deep black
+secondaryBackgroundColor = "#121214"
+textColor = "#FFF8E7"
+font = "sans serif"
