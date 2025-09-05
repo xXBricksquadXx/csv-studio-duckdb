@@ -137,6 +137,10 @@ button[role="tab"][aria-selected="true"]{
   color:var(--text);
   border-bottom:1px solid var(--border);
 }
+/* sticky table header */
+.stDataFrame [data-testid="stTable"] thead tr th{
+  position: sticky; top: 0; z-index: 3; background: var(--surface);
+}
 
 /* KPI metrics: brighter values */
 [data-testid="stMetricLabel"]{ color:var(--muted)!important; }
@@ -199,6 +203,10 @@ div[data-baseweb="tab-list"]{ background:var(--surface); border:1px solid var(--
 button[role="tab"]{ color:#64748B; } button[role="tab"][aria-selected="true"]{ color:var(--text); border-bottom:2px solid var(--accent); }
 .stDataFrame, .stDataFrame [data-testid="stTable"]{ background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:12px; box-shadow:var(--shadow); }
 .stDataFrame thead th{ background:#FFFDF4; color:var(--text); border-bottom:1px solid var(--border); }
+/* sticky table header */
+.stDataFrame [data-testid="stTable"] thead tr th{
+  position: sticky; top: 0; z-index: 3; background: var(--surface);
+}
 .hero-card{ background:var(--surface)!important; border:1px solid var(--border)!important; border-radius:18px!important; box-shadow:var(--shadow)!important; padding:32px!important; }
 </style>
 """
@@ -275,6 +283,13 @@ def _make_fig_bg_transparent(fig):
     fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
     return fig
 
+# share view helper (URL params)
+def _put_query_params(params: dict):
+    try:
+        st.query_params.clear(); st.query_params.update(params)
+    except Exception:
+        st.experimental_set_query_params(**params)
+
 # -----------------------------
 # Session state
 # -----------------------------
@@ -331,6 +346,9 @@ with st.sidebar:
     st.markdown("### Filters")
     f = ss.filters
     f["q"] = st.text_input("Global search", value=f.get("q", ""))
+
+    if st.button("Clear filters"):
+        reset_filters_for(ss.df); st.rerun()
 
     if ss.df is not None:
         cols = [c for c in ss.df.columns if c != "_id"]
@@ -407,6 +425,21 @@ with st.sidebar:
 
         ss.rows_per_page = st.selectbox("Rows per page", options=[25, 50, 100, 250, 1000],
                                         index=[25, 50, 100, 250, 1000].index(ss.rows_per_page))
+
+    # Share current view (URL params)
+    if st.button("🔗 Share this view"):
+        _put_query_params({
+            "q": f.get("q",""),
+            "cat_col": f.get("cat_col",""),
+            "cat_vals": ",".join(f.get("cat_vals",[])),
+            "metric": f.get("metric",""),
+            "mr": ",".join([str(x) for x in (f.get("metric_range") or [])]),
+            "date_col": f.get("date_col",""),
+            "rpp": str(ss.rows_per_page),
+            "p": str(ss.page),
+            "light": "1" if ss.light_theme else "0",
+        })
+        st.toast("URL updated — copy from the address bar.")
 
 # -----------------------------
 # Title / Empty state
