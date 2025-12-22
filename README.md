@@ -108,4 +108,4 @@ Any public raw CSV link works (GitHub “Raw” URLs are great). Very large file
 
 ## License
 
-MIT © 2025 — Feel free to fork, adapt, and ship.
+CC0 1.0 Universal — Feel free to fork, adapt, and ship.
