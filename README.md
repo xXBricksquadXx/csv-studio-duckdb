@@ -1,5 +1,6 @@
-# CSV Studio — DuckDB Edition
+<img width="1536" height="1024" alt="CSV-Studio" src="https://github.com/user-attachments/assets/629bbefa-b892-4959-98ce-2e11cc7d98ad" />
 
+---
 [![Live App](https://img.shields.io/badge/Live_App-Streamlit-ff4b4b?logo=streamlit&logoColor=white)](https://csv-studio-duckdb.streamlit.app/)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![DuckDB](https://img.shields.io/badge/Powered_by-DuckDB-fff?logo=duckdb&logoColor=000)
